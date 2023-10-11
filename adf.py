@@ -7,13 +7,25 @@ from tqdm import tqdm
 import threading
 import concurrent.futures
 import statsmodels.api as sm
+#from HistoricalData import get_spy_data
 
 lock = threading.Lock()
+
+###
+# Config
 
 dest_coint = "ADF_Cointegrated"
 dest_not_coint = "ADF_Diff"
 csv_path = "spy.csv"
 max_threads = 10
+
+###
+
+start_time = time.time()
+
+if not os.path.exists("spy.csv"):
+    #get_spy_data()
+    pass
 
 spy = pd.read_csv(csv_path)
 spy.dropna(how="all",axis=1)
@@ -21,7 +33,7 @@ spy.dropna(how="all",axis=1)
 tickers = [i for i in spy.columns]
 tickers.pop(0) #pop column name for index
 
-print(tickers)
+#print(tickers)
 
 if not os.path.exists(dest_coint):
     os.mkdir(dest_coint)
@@ -37,9 +49,11 @@ def regress_two(t1: str,t2: str): # regress t1 on t2 to get cointegration vector
     model = sm.OLS(Y,X)
     results = model.fit()
 
-    print(results.params, results.params.to_list()[0][1])
+    #print(results.summary())
 
-    return results.params.to_list()[0][1]
+    #print(f'Results.params: {results.params.to_list()}')
+
+    return results.params.to_list()[1]
 
 
 #if not os.path.exists(dest_not_coint):
@@ -51,12 +65,17 @@ def compare_two(t1: str,t2: str):
     with lock:
         df1 = spy[t1] #returns series, not dataframe
         df2 = spy[t2]
+
+        # need to run separate adf tests on each time series
+        # need to test first differences being stationary
+        # create ECM
         try:
             combined = pd.merge(df1,df2,how="inner",left_index=True,right_index=True)
 
             beta = regress_two(t1,t2) # regress t1 on t2
-
-            combined = combined[t1] - beta * combined[t2] #get residuals
+            
+            combined[t2].apply(lambda x:x *beta)
+            combined = combined[t1] - combined[t2] #get residuals
 
             # Stationarity: Yt - \beta * Xt = I(0)
 
@@ -84,17 +103,23 @@ def compare_two(t1: str,t2: str):
                 #plt.savefig(os.path.join(dest_not_coint,filename))
 
             plt.clf()
-            '''plt.show()
+            '''
+            plt.show()                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
             time.sleep(5)
-            plt.close()'''
+            plt.close()
+            '''
 
         except Exception as e:
             print(e)
 
+#compare_two,tickers[0],tickers[1]
+
 with concurrent.futures.ThreadPoolExecutor(max_threads) as executor:
     for i in tqdm(range(len(tickers))):
-        for j in range(i+1,len(tickers)):
+        for j in tqdm(range(i+1,len(tickers))):
             executor.submit(compare_two,tickers[i],tickers[j])
             #thread = threading.Thread(target=compare_two, args=(tickers[i],tickers[j]))
             #thread.start()
             #compare_two(tickers[i],tickers[j])
+
+print(f"Completed program. Took {time.time()-start_time} seconds.")

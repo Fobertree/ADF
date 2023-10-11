@@ -1,2 +1,7 @@
-ADF_Cointegrated
-ADF_Diff
+ADF_Cointegrated/
+ADF_Diff/
+
+yfinance.cache
+__pycache__/
+*.csv
+*.png
