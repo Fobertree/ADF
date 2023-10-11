@@ -6,6 +6,7 @@ import time
 from tqdm import tqdm
 import threading
 import concurrent.futures
+import statsmodels.api as sm
 
 lock = threading.Lock()
 
@@ -25,21 +26,39 @@ print(tickers)
 if not os.path.exists(dest_coint):
     os.mkdir(dest_coint)
 
+def regress_two(t1: str,t2: str): # regress t1 on t2 to get cointegration vector
+    Y = spy[t1]
+    X = spy[t2]
+
+    Y.to_list()
+    X.to_list()
+
+    X = sm.add_constant(X)
+    model = sm.OLS(Y,X)
+    results = model.fit()
+
+    print(results.params, results.params.to_list()[0][1])
+
+    return results.params.to_list()[0][1]
+
+
 #if not os.path.exists(dest_not_coint):
 #    os.mkdir(dest_not_coint)
 
 # Dickey Fuller and ADF can only be done on a snigle time series. It is referred to as a test of stationarity for this reason
 # If we merge two time series, then if the test for stationary rejects null hypothesis (residual is stationary), then cointegration is proven
-def compare_two(t1,t2):
+def compare_two(t1: str,t2: str):
     with lock:
         df1 = spy[t1] #returns series, not dataframe
         df2 = spy[t2]
         try:
             combined = pd.merge(df1,df2,how="inner",left_index=True,right_index=True)
 
-            combined = combined[t1] - combined[t2] #get residuals
+            beta = regress_two(t1,t2) # regress t1 on t2
 
-            # to improve this, we need to estimate cointegrating vector beta before taking the difference
+            combined = combined[t1] - beta * combined[t2] #get residuals
+
+            # Stationarity: Yt - \beta * Xt = I(0)
 
             plt.plot(combined)
             result = adfuller(combined)
