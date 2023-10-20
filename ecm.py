@@ -124,7 +124,7 @@ class Pair:
         # add all of terms for sigma by using list comprehension + append
         #fitted model.predict()
 
-    def roll_forecast_ecm(self,y_var='close',X_vars=predictors,lr_X_vars=['close_market','const'],data_train=self.data_train,):
+    def roll_forecast_ecm(self,y_var='close',X_vars=predictors,lr_X_vars=['close_market','const'],data_train=data_train,):
 
         lr_train.dropna(inplace=True)
         #dataframes that track past history
