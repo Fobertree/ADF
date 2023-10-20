@@ -18,7 +18,7 @@ dest_coint = "ADF_Cointegrated"
 dest_not_coint = "ADF_Diff"
 csv_path = "spy.csv"
 max_threads = 10
-
+adf_percentage = "5%"
 ###
 
 start_time = time.time()
@@ -74,7 +74,7 @@ def compare_two(t1: str,t2: str):
 
             beta = regress_two(t1,t2) # regress t1 on t2
             
-            combined[t2].apply(lambda x:x *beta)
+            combined[t2].apply(lambda x:x *beta) #create linear combination
             combined = combined[t1] - combined[t2] #get residuals
 
             # Stationarity: Yt - \beta * Xt = I(0)
@@ -95,7 +95,7 @@ def compare_two(t1: str,t2: str):
 
             filename = f"ADF_{t1}_{t2}.png"
 
-            if result[0] < result[4]["5%"]:
+            if result[0] < result[4][adf_percentage]:
                 print("Reject H0 - Time Series is Stationary")
                 plt.savefig(os.path.join(dest_coint,filename))
             else:
