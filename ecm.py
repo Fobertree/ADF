@@ -6,7 +6,13 @@
 import pandas as pd
 import statsmodels.api as sm
 import warnings
+from HistoricalData import get_spy_data
 warnings.filterwarnings('ignore')
+import os
+from math import log
+
+if not os.path.exists("spy.csv"):
+    get_spy_data()
 
 spy = pd.read_csv("spy.csv")
 predictors = ["X","const",'disequilibrium']
@@ -30,6 +36,11 @@ class Pair:
         self.data_train = pd.DataFrame()
         self.data = pd.DataFrame()
         self.close = pd.Series()
+
+        self.history = pd.DataFrame()
+        self.diff_history = pd.DataFrame()
+        self.diff_train= pd.DataFrame()
+        self.diff_test = pd.DataFrame()
 
         self.get_data(t1,t2,5,5)
         
@@ -61,19 +72,19 @@ class Pair:
         self.data.dropna(inplace=True)
 
         self.data['disequilibrium'] = self.get_disequilibrium()
-        self.data_train = self.data[-self.train_length:].reset_index(drop=True)
-        self.data_test = self.data[:-self.train_length].reset_index(drop=True)
+        self.data_train = self.data[:-self.train_length].reset_index(drop=True)
+        self.data_test = self.data[-self.train_length:].reset_index(drop=True)
 
         print(self.data)
         print(self.data_train)
+        print(len(self.data_test))
 
         # diff everything
         self.diff_data = self.data.diff().dropna().reset_index(drop=True)
         self.close = self.close.diff().dropna().reset_index(drop=True)
 
-        self.diff_train = self.diff_data[-self.train_length:].reset_index(drop=True)
+        self.diff_train = self.diff_data[:-self.train_length].reset_index(drop=True)
         print(self.diff_train,self.diff_data)
-        input()
         self.diff_test = self.data[-self.train_length:].reset_index(drop=True) #all(1) for columns
 
         #close = close.reset_index(drop=True)
@@ -124,44 +135,54 @@ class Pair:
         # add all of terms for sigma by using list comprehension + append
         #fitted model.predict()
 
-    def roll_forecast_ecm(self,y_var='close',X_vars=predictors,lr_X_vars=['close_market','const'],data_train=data_train,):
+    def roll_forecast_ecm(self,lr_train,lr_test,diff_train,diff_test,y_var='close',X_vars=predictors,lr_X_vars=['close','const'],data_train=data_train,):
+        #y_var,X_vars,lr_train,lr_test,diff_train,diff_test
 
         lr_train.dropna(inplace=True)
         #dataframes that track past history
         self.history = lr_train
-        self.diff_history = diff_train
+        self.diff_history = diff_train.dropna()
+        print(self.diff_history)
 
         # linear model to predict long-run relationship
-        lr_model_train = sm.OLS(history[[y_var]],history[lr_X_vars])
+        print(self.history)
+        lr_model_train = sm.OLS(self.history[[y_var]],self.history[lr_X_vars])
         # fits lr model
         lr_model_train_fit = lr_model_train.fit(cov_type='HC0')
         # add disequilibrium column for training period
-        diff_train['disequilibrium'] = lr_model_train_fit.resid.shift(1)
+        self.diff_train['disequilibrium'] = lr_model_train_fit.resid.shift(1)
 
         # creates an empty list that will hold the residuals for the next period
-        disequilibrium = []
+        self.disequilibrium = []
 
         # loops through the indexes of the set being forecasted
+        print(len(lr_test))
         for i in range(len(lr_test)):
             
             # estimates a linear model to predict the longrun relationship
-            lr_model = sm.OLS(history[[y_var]], history[lr_X_vars])
+            print(self.history)
+            lr_model = sm.OLS(self.history[[y_var]], self.history[lr_X_vars])
             # fits the lr model
             lr_model_fit = lr_model.fit(cov_type='HC0')
             # forecasts the disequilibrium in the next period and appends it to the list by predicting 
             # the closing price using the 1st lagged value of the independent variable at t+1, which makes it
             # at time t, and subtracting the closing price at time t, giving the residual for time t, which is 
             # t - 1 for the future value we want to predict
-            disequilibrium_hat = (float(lr_model_fit.predict(history[-1:][lr_X_vars]))
-                                - float(history[-1:].close.values))
-            disequilibrium.append(disequilibrium_hat)
+            disequilibrium_hat = (float(lr_model_fit.predict(self.history[-1:][lr_X_vars]))
+                                - float(self.history[-1:].close.values))
+            self.disequilibrium.append(disequilibrium_hat)
             # grabs the observation at the ith index
             obs = lr_test[i : i + 1]
             # appends the observation to the estimation data set
-            history = history.append(obs)
+            print("Hello",self.history,obs,len(obs))
+            #self.history = self.history.append(obs)
+            self.history = pd.concat([self.history,obs])
             
-        # creates a column of the lagged disequilibrium values
-        diff_test['disequilibrium'] = disequilibrium
+        # creates a column of the lagged disequilibrium values 
+        print(len(self.diff_test),len(self.disequilibrium))
+        print(self.disequilibrium)
+        self.diff_test['disequilibrium'] = self.disequilibrium
+        print(self.diff_history)
         
         
         # this chunk of code does the 1-step ahead ECM estimation and prediction
@@ -172,12 +193,13 @@ class Pair:
         error_correction_coefficients = []
         # this list stores the standard error of the EC coefficients
         error_correction_coef_stderr = []
+        print("Iterating diff_test")
 
         # loops through the indexes of the set being forecasted
         for i in range(len(diff_test)):
-            
+            print(self.diff_history)
             # estimates an ECM to predict future values
-            ecm_model = sm.OLS(diff_history[[y_var]], diff_history[X_vars])
+            ecm_model = sm.OLS(self.diff_history[[y_var]], self.diff_history[X_vars])
             # fits the ECM
             ecm_model_fit = ecm_model.fit(cov_type='HC0')
             # predicts the future closing price change and appends it to the list of predictions
@@ -186,7 +208,8 @@ class Pair:
             # grabs the observation at the ith index
             obs = diff_test[i : i + 1]
             # appends the observation to the estimation data set
-            diff_history = diff_history.append(obs)
+            #diff_history = diff_history.append(obs)
+            self.diff_history = pd.concat([self.diff_history,obs])
             
             # appends the error_correction coefficient to the list  
             error_correction_coefficients.append(ecm_model_fit.params.disequilibrium)
@@ -198,10 +221,19 @@ class Pair:
         diff_test['ec_stderr'] = error_correction_coef_stderr
         
         # returns predictions
-        return(diff_test, ecm_model_fit)  
+        return(diff_test, ecm_model_fit) 
 
+    def rolling_update(self):
+        
+        pass
 
-    def generate_instruction(data,model,*args):
+    def outer_test_stddev(self,priceX,priceY,std=3): #enter a position
+        spread = abs(log(priceX)-log(priceY))
+
+    def inner_test_stddev(self,priceX,priceY,std=1): # exit a position
+        spread = abs(log(priceX)-log(priceY))
+
+    def generate_instruction(self,data,model,*args):
         pass
 
     def plot_ecm(*func):
@@ -214,6 +246,7 @@ if __name__ == "__main__":
     stock_pair = Pair(spy.columns[1],spy.columns[2])
     stock_pair.create_ecm()
 
-    y_var,X_vars,lr_X_vars,lr_train,lr_test,diff_train,diff_test = 'close',predictors,['close_market','const'],data_train.dropna(),stock_pair.data_test,stock_pair.diff_train,stock_pair.diff_test
-    input()
-    ecm_results = stock_pair.roll_forecast_ecm(y_var,X_vars,lr_train,lr_test,diff_train,diff_test)
+    y_var,X_vars,lr_X_vars,lr_train,lr_test,diff_train,diff_test = 'close',stock_pair.predictors,['close_market','const'],stock_pair.data_train.dropna(),stock_pair.data_test,stock_pair.diff_train,stock_pair.diff_test
+    stock_pair.diff_history,ecm_results = stock_pair.roll_forecast_ecm(lr_train,lr_test,diff_train,diff_test)
+
+    print("done")
